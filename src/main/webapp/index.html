@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Cancha Sintética La Arcadia</title>
+  <style>
+    body { font-family: Arial, sans-serif; background-color: #e9f5e9; padding: 20px; }
+    h1 { color: #2e7d32; }
+    form, table { margin-top: 20px; background-color: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    label { display: block; margin-top: 10px; }
+    input, select, button { margin-top: 5px; padding: 8px; width: 100%; box-sizing: border-box; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; border: 1px solid #ccc; text-align: center; }
+    th { background-color: #a5d6a7; }
+    .msg { margin-top: 10px; font-size: 14px; color: #555; }
+  </style>
+</head>
+<body>
+
+  <h1>📅 Reservar Cancha Sintética La Arcadia</h1>
+
+  <form id="formReserva" action="Reservar" method="post">
+    <label>Nombre:</label>
+    <input type="text" name="nombre" required>
+
+    <label>Fecha:</label>
+    <input type="date" name="fecha" required>
+
+    <label>Hora inicio:</label>
+    <select name="horaInicio" id="horaInicio" required></select>
+
+    <label>Hora fin:</label>
+    <select name="horaFin" id="horaFin" required></select>
+
+    <label>Número WhatsApp del cliente:</label>
+    <input type="tel" name="telefono" placeholder="+5939XXXXXXXX" required>
+
+    <button type="submit">Reservar</button>
+  </form>
+
+  <div class="msg" id="estado"></div>
+
+  <h2>📋 Reservas registradas</h2>
+  <table id="tablaReservas">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Fecha</th>
+        <th>Hora inicio</th>
+        <th>Hora fin</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    // Generar opciones de hora en intervalos de 30 minutos
+    function generarHoras(select) {
+      if (!select) return;
+      select.innerHTML = "";
+      for (let h = 8; h <= 23; h++) {
+        ["00", "30"].forEach(min => {
+          const hora = (h < 10 ? "0" + h : h) + ":" + min;
+          const option = document.createElement("option");
+          option.value = hora;
+          option.textContent = hora;
+          select.appendChild(option);
+        });
+      }
+    }
+
+    const inicioSelect = document.getElementById("horaInicio");
+    const finSelect = document.getElementById("horaFin");
+    generarHoras(inicioSelect);
+    generarHoras(finSelect);
+
+    // Consultar reservas desde el backend
+    async function consultarReservas() {
+      try {
+        const res = await fetch("ConsultarReservas");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      } catch (e) {
+        console.error("Error consultando reservas:", e);
+        return [];
+      }
+    }
+
+    // Cargar reservas en la tabla y bloquear horarios ocupados
+    async function cargarReservas() {
+      const tbody = document.querySelector("#tablaReservas tbody");
+      if (!tbody) return;
+
+      const data = await consultarReservas();
+      const ahora = new Date();
+
+      // Mostrar solo reservas futuras
+      tbody.innerHTML = "";
+      data.forEach(r => {
+        const fechaHoraFin = new Date(`${r.fecha}T${r.horaFin}`);
+        if (fechaHoraFin > ahora) {
+          tbody.innerHTML += `<tr>
+            <td>${r.nombre ?? ''}</td>
+            <td>${r.fecha ?? ''}</td>
+            <td>${r.horaInicio ?? ''}</td>
+            <td>${r.horaFin ?? ''}</td>
+          </tr>`;
+        }
+      });
+
+      // Bloquear horarios ocupados si hay fecha seleccionada
+      const fechaInput = document.querySelector("input[name='fecha']");
+      const fechaSeleccionada = fechaInput ? fechaInput.value : null;
+      if (!fechaSeleccionada || !inicioSelect || !finSelect) return;
+
+      // Habilitar todas las opciones primero
+      [...inicioSelect.options, ...finSelect.options].forEach(opt => opt.disabled = false);
+
+      // Deshabilitar las horas ocupadas
+      data.forEach(r => {
+        if (r.fecha === fechaSeleccionada) {
+          const horaInicio = r.horaInicio;
+          const horaFin = r.horaFin;
+          if (!horaInicio || !horaFin) return;
+
+          let bloquear = false;
+          for (let opt of inicioSelect.options) {
+            if (opt.value === horaInicio) bloquear = true;
+            if (bloquear) opt.disabled = true;
+            if (opt.value === horaFin) bloquear = false;
+          }
+
+          bloquear = false;
+          for (let opt of finSelect.options) {
+            if (opt.value === horaInicio) bloquear = true;
+            if (bloquear) opt.disabled = true;
+            if (opt.value === horaFin) bloquear = false;
+          }
+        }
+      });
+    }
+
+    // Actualizar horarios bloqueados al cambiar la fecha
+    const fechaInput = document.querySelector("input[name='fecha']");
+    if (fechaInput) fechaInput.addEventListener("change", cargarReservas);
+
+    // Enviar reserva con fetch
+    const form = document.getElementById("formReserva");
+    if (form) {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          const datos = new URLSearchParams(new FormData(form));
+          const res = await fetch("Reservar", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: datos.toString()
+          });
+          const mensaje = await res.text();
+          alert(mensaje);
+          form.reset();
+          generarHoras(inicioSelect);
+          generarHoras(finSelect);
+          await cargarReservas();
+        } catch (e) {
+          console.error("Error enviando reserva:", e);
+          alert("No se pudo enviar la reserva. Intenta nuevamente.");
+        }
+      });
+    }
+
+    window.addEventListener("load", cargarReservas);
+  </script>
+
+</body>
+</html>
